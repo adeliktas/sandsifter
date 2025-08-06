@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 # we had a much more automated and intelligent approach to reducing the log, but
 # could not come up with a reasonable way to differentiate between a modr/m byte
@@ -131,7 +131,7 @@ disassemblers = {
                     "| grep '0:' -A 99"      # crop header
                     "| sed '/.byte /Q'"      # stop at invalid byte
                     "| sed '/(bad)/Q'"       # stop at invalid byte
-                    "| sed 's/.*:\s*\(\([0-9a-f][0-9a-f] \)*\).*/\1/'" # crop raw
+                    "| sed 's/.*:\\s*\\(\\([0-9a-f][0-9a-f] \\)*\\).*/\\1/'" # crop raw
                     "| tr -d '\\n '"         # join to one line and remove spaces
                 ),
             64: (
@@ -204,13 +204,13 @@ def disassemble_capstone(arch, data):
         return ("", "")
 
     try:
-        (address, size, mnemonic, op_str) = m.disasm_lite(data, 0, 1).next()
+        (address, size, mnemonic, op_str) = next(m.disasm_lite(data, 0, 1))
     except StopIteration:
         mnemonic="(unk)"
         op_str=""
         size = 0
 
-    return ("%s %s" % (mnemonic, op_str), hexlify(data[:size]))
+    return ("%s %s" % (mnemonic, op_str), hexlify(data[:size]).decode())
 
 signals = {
         1:   "sighup",
@@ -336,30 +336,30 @@ def disassemble(disassembler, bitness, data):
 
 def cleanup(disas):
     disas = disas.strip()
-    disas = disas.replace(',', ', ')
-    disas = " ".join(disas.split())
+    disas = disas.replace(b',', b', ')
+    disas = b" ".join(disas.split())
     return disas
 
 def instruction_length(raw):
-    return len(raw)/2
+    return len(raw)//2
 
 def print_catalog(c, depth=0):
     for v in c.v:
-        print "  " * (depth) + hexlify(v.raw) + " " + summarize_prefixes(v)
+        print("  " * (depth) + hexlify(v.raw).decode() + " " + summarize_prefixes(v))
     for k in c.d:
-        print "  " * depth + "%02x" % ord(k) + ":"
+        print("  " * depth + "%02x" % ord(k) + ":")
         print_catalog(c.d[k], depth+1)
 
 def strip_prefixes(i, prefixes):
-    while i and ord(i[0]) in prefixes:
+    while i and i[0] in prefixes:
         i = i[1:]
     return i
 
 def get_prefixes(i, prefixes):
     p = set()
     for b in i:
-        if ord(b) in prefixes:
-            p.add(ord(b))
+        if b in prefixes:
+            p.add(b)
         else:
             break
     return p
@@ -418,6 +418,9 @@ def merge_sets(instructions, attribute):
     return s
 
 if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("You need to specify a log file!")
+        exit(1)
 
     #TODO: you need to track the WHOLE byte string and pass that to the
     # disassemblers - if the string was SHORTER than the disassembler thought,
@@ -434,39 +437,43 @@ if __name__ == "__main__":
     instructions = []
     processor = Processor()
 
-    print
-    print "beginning summarization."
-    print "note: this process may take up to an hour to complete, please be patient."
-    print
+    print()
+    print("beginning summarization.")
+    print("note: this process may take up to an hour to complete, please be patient.")
+    print()
 
-    print "loading sifter log:"
-    with open(sys.argv[1], "r") as f:
-        lines = f.readlines()
-        f.seek(0)
-        for (i, l) in enumerate(lines):
-            progress(i, len(lines)-1, refresh=len(lines)/1000)
-            if l.startswith("#"):
-                #TODO: this is not robust
-                if "arch:" in l and "64" in l:
-                    processor.architecture = 64
-                elif "processor\t:" in l:
-                    processor.processor = l.split(":",1)[1].strip()
-                elif "vendor_id\t:" in l:
-                    processor.vendor_id = l.split(":",1)[1].strip()
-                elif "cpu family\t:" in l:
-                    processor.cpu_family = l.split(":",1)[1].strip()
-                elif "model\t:" in l:
-                    processor.cpu_family = l.split(":",1)[1].strip()
-                elif "model name\t:" in l:
-                    processor.model_name = l.split(":",1)[1].strip()
-                elif "stepping\t:" in l:
-                    processor.stepping = l.split(":",1)[1].strip()
-                elif "stepping\t:" in l:
-                    processor.microcode = l.split(":",1)[1].strip()
-                continue
-            v = l.split()
-            r = Result(unhexlify(v[0]), unhexlify(v[5].strip("()")), int(v[1]), int(v[2]), int(v[3]), int(v[4]))
-            instructions.append(r)
+    print("loading sifter log:")
+    try:
+        with open(sys.argv[1], "r") as f:
+            lines = f.readlines()
+            f.seek(0)
+            for (i, l) in enumerate(lines):
+                progress(i, len(lines)-1, refresh=len(lines)//1000)
+                if l.startswith("#"):
+                    #TODO: this is not robust
+                    if "arch:" in l and "64" in l:
+                        processor.architecture = 64
+                    elif "processor\t:" in l:
+                        processor.processor = l.split(":",1)[1].strip()
+                    elif "vendor_id\t:" in l:
+                        processor.vendor_id = l.split(":",1)[1].strip()
+                    elif "cpu family\t:" in l:
+                        processor.cpu_family = l.split(":",1)[1].strip()
+                    elif "model\t:" in l:
+                        processor.cpu_family = l.split(":",1)[1].strip()
+                    elif "model name\t:" in l:
+                        processor.model_name = l.split(":",1)[1].strip()
+                    elif "stepping\t:" in l:
+                        processor.stepping = l.split(":",1)[1].strip()
+                    elif "stepping\t:" in l:
+                        processor.microcode = l.split(":",1)[1].strip()
+                    continue
+                v = l.split()
+                r = Result(unhexlify(v[0]), unhexlify(v[5].strip("()")), int(v[1]), int(v[2]), int(v[3]), int(v[4]))
+                instructions.append(r)
+    except FileNotFoundError:
+        print("Invalid file!")
+        exit(1)
 
     # reduce prefixes
 
@@ -475,11 +482,11 @@ if __name__ == "__main__":
         prefixes.extend(prefixes_64)
 
     # condense prefixed instructions 
-    print "condensing prefixes:"
+    print("condensing prefixes:")
     all_results = {} # lookup table for condensed result to all results
     d = {} # lookup table for base instruction to instruction summary
     for (c, i) in enumerate(instructions):
-        progress(c, len(instructions) - 1, refresh=len(instructions)/1000)
+        progress(c, len(instructions) - 1, refresh=len(instructions)//1000)
         s = strip_prefixes(i.raw, prefixes)
         p = get_prefixes(i.raw, prefixes)
         if len(s) == len(i.raw):
@@ -529,12 +536,12 @@ if __name__ == "__main__":
             else:
                 c.v.append(i)
                 bin_progress = bin_progress + 1
-                progress(bin_progress, progress_out_of, refresh=progress_out_of/1000)
+                progress(bin_progress, progress_out_of, refresh=progress_out_of//1000)
         for b in c.d:
-            (c.d[b], bin_progress) = bin(c.d[b], index + 1, base + b, bin_progress, progress_out_of)
+            (c.d[b], bin_progress) = bin(c.d[b], index + 1, base + chr(b), bin_progress, progress_out_of)
         return (c, bin_progress)
 
-    print "binning results:"
+    print("binning results:")
     (c,_) = bin(instructions, 0)
 
     # open first catalog entries
@@ -565,7 +572,7 @@ if __name__ == "__main__":
         if c.v:
             return c.v[0]
         else:
-            return get_solo_leaf(c.d[c.d.keys()[0]])
+            return get_solo_leaf(c.d[list(c.d.keys())[0]])
 
     def build_instruction_summary(c, index=0, summary=None, lookup=None):
         if not summary:
@@ -576,17 +583,17 @@ if __name__ == "__main__":
             lookup[len(summary)] = c
             suffix = ".." * (min(c.lengths) - len(c.base)) + " " + \
                             ".." * (max(c.lengths) - min(c.lengths))
-            summary.append("  " * index + "> " + hexlify(c.base) + suffix)
+            summary.append("  " * index + "> " + hexlify(c.base.encode()).decode() + suffix)
             if not c.collapsed:
                 for b in sorted(c.d):
                     build_instruction_summary(c.d[b], index + 1, summary, lookup)
                 for v in sorted(c.v):
                     lookup[len(summary)] = v
-                    summary.append("  " * index + "  " + hexlify(v.raw))
+                    summary.append("  " * index + "  " + hexlify(v.raw).decode())
         else:
             v = get_solo_leaf(c)
             lookup[len(summary)] = v
-            summary.append("  " * index + "  " + hexlify(v.raw))
+            summary.append("  " * index + "  " + hexlify(v.raw).decode())
         return (summary, lookup)
 
     (summary, lookup) = build_instruction_summary(c)
@@ -605,7 +612,7 @@ if __name__ == "__main__":
         gui.box(gui.window, infobox_x, infobox_y, infobox_width, infobox_height, gui.gray(.3))
 
 	#TODO: (minor) this should really be done properly with windows
-        for i in xrange(infobox_y + 1, infobox_y + infobox_height - 1):
+        for i in range(infobox_y + 1, infobox_y + infobox_height - 1):
             gui.window.addstr(i, infobox_x + 1, " " * (infobox_width - 2), gui.gray(0))
 
         if type(o) == Catalog:
@@ -614,7 +621,7 @@ if __name__ == "__main__":
             gui.window.addstr(line, infobox_x + 2, "instruction group:", curses.color_pair(gui.RED))
             line = line + 1
 
-            g = hexlify(o.base)
+            g = hexlify(o.base.encode()).decode()
             if not g:
                 g = "(all)"
             gui.window.addstr(line, infobox_x + 2, "%s" % g, gui.gray(1))
@@ -631,7 +638,7 @@ if __name__ == "__main__":
 
             gui.window.addstr(line, infobox_x + 2, "example instruction from this group:", gui.gray(.5))
             line = line + 1
-            gui.window.addstr(line, infobox_x + 2, "%s" % hexlify(o.example), gui.gray(.8))
+            gui.window.addstr(line, infobox_x + 2, "%s" % hexlify(o.example).decode(), gui.gray(.8))
             line = line + 1
 
             line = line + 1
@@ -668,7 +675,7 @@ if __name__ == "__main__":
 
             gui.window.addstr(line, infobox_x + 2, "instruction:", curses.color_pair(gui.RED))
             line = line + 1
-            gui.window.addstr(line, infobox_x + 2, "%-30s" % hexlify(o.raw), gui.gray(1))
+            gui.window.addstr(line, infobox_x + 2, "%-30s" % hexlify(o.raw).decode(), gui.gray(1))
             line = line + 1
 
             line = line + 1
@@ -710,7 +717,7 @@ if __name__ == "__main__":
                     dis_data = o.raw
                 else:
                     # select a prefixed version as an exemplar instruction
-                    dis_data = chr(next(iter(o.prefixes))) + o.raw
+                    dis_data = bytes([next(iter(o.prefixes))]) + o.raw
 
                 if disassembler == CAPSTONE:
                     (asm, raw) = disassemble_capstone(processor.architecture, dis_data)
@@ -752,10 +759,10 @@ if __name__ == "__main__":
 
         draw_infobox(gui, lookup[textbox.selected_index])
 
-        gui.window.addstr(33, 1, "j: down,     J: DOWN", gui.gray(.4))
-        gui.window.addstr(34, 1, "k: up,       K: UP", gui.gray(.4))
-        gui.window.addstr(35, 1, "l: expand    L: all", gui.gray(.4))
-        gui.window.addstr(36, 1, "h: collapse  H: all", gui.gray(.4))
+        gui.window.addstr(33, 1, "↓: down,     →: DOWN", gui.gray(.4))
+        gui.window.addstr(34, 1, "↑: up,       ←: UP", gui.gray(.4))
+        gui.window.addstr(35, 1, "↵: expand    L: all", gui.gray(.4))
+        gui.window.addstr(36, 1, "↵: collapse  H: all", gui.gray(.4))
         gui.window.addstr(37, 1, "g: start     G: end", gui.gray(.4))
         gui.window.addstr(38, 1, "{: previous  }: next", gui.gray(.4))
         gui.window.addstr(39, 1, "q: quit and print", gui.gray(.4))
@@ -772,25 +779,17 @@ if __name__ == "__main__":
         key = -1
         while key == -1:
             key = gui.get_key()
-        if key == ord('k'):
-            textbox.scroll_up()
-        elif key == ord('K'):
-            for _ in xrange(10):
-                textbox.scroll_up()
-                smooth_scroll()
-        elif key == ord('j'):
-            textbox.scroll_down()
-        elif key == ord('J'):
-            for _ in xrange(10):
-                textbox.scroll_down()
-                smooth_scroll()
-        elif key == ord('l'):
+        if key == 0x0a:
             i = textbox.selected_index
             v = lookup[i]
             if type(v) == Catalog:
-                lookup[i].collapsed = False
-                (summary, lookup) = build_instruction_summary(c)
-                textbox.text = summary
+                lookup[i].collapsed = not lookup[i].collapsed
+                if not lookup[i].collapsed:
+                    (summary, lookup) = build_instruction_summary(c)
+                    textbox.text = summary
+                else:
+                    (summary, lookup) = build_instruction_summary(c)
+                    textbox.text = summary
         elif key == ord('L'):
             def expand_all(c):
                 c.collapsed = False
@@ -799,13 +798,6 @@ if __name__ == "__main__":
             expand_all(c)
             (summary, lookup) = build_instruction_summary(c)
             textbox.text = summary
-        elif key == ord('h'):
-            i = textbox.selected_index
-            v = lookup[i]
-            if type(v) == Catalog:
-                lookup[i].collapsed = True
-                (summary, lookup) = build_instruction_summary(c)
-                textbox.text = summary
         elif key == ord('H'):
             def collapse_all(c):
                 c.collapsed = True
@@ -832,6 +824,26 @@ if __name__ == "__main__":
                 smooth_scroll()
         elif key == ord('q'):
             break
+        elif key == 0x1b:   # escape
+            key = -1
+            while key == -1:
+                key = gui.get_key()
+            if key == ord('['):
+                key = -1
+                while key == -1:
+                    key = gui.get_key()
+                if key == ord('A'):
+                    textbox.scroll_up()
+                elif key == ord('B'):
+                    textbox.scroll_down()
+                elif key == ord('C'):
+                    for _ in range(10):
+                        textbox.scroll_down()
+                        smooth_scroll()
+                elif key == ord('D'):
+                    for _ in range(10):             
+                        textbox.scroll_up()
+                        smooth_scroll()
 
     gui.stop()
 
@@ -839,20 +851,20 @@ if __name__ == "__main__":
 
     title = "PROCESSOR ANALYSIS SUMMARY"
     width = 50
-    print "=" * width
-    print " " * ((width - len(title)) / 2) + title
-    print "=" * width
-    print
-    print processor.model_name
-    print
-    print " arch:       %d" % processor.architecture
-    print " processor:  %s" % processor.processor
-    print " vendor_id:  %s" % processor.vendor_id
-    print " cpu_family: %s" % processor.cpu_family
-    print " model:      %s" % processor.model
-    print " stepping:   %s" % processor.stepping
-    print " microcode:  %s" % processor.microcode
-    print 
+    print("=" * width)
+    print(" " * ((width - len(title)) // 2) + title)
+    print("=" * width)
+    print()
+    print(processor.model_name)
+    print()
+    print(" arch:       %d" % processor.architecture)
+    print(" processor:  %s" % processor.processor)
+    print(" vendor_id:  %s" % processor.vendor_id)
+    print(" cpu_family: %s" % processor.cpu_family)
+    print(" model:      %s" % processor.model)
+    print(" stepping:   %s" % processor.stepping)
+    print(" microcode:  %s" % processor.microcode)
+    print()
 
     #TODO:
     # high level summary at end:
@@ -860,5 +872,5 @@ if __name__ == "__main__":
     #   software bugs detected: x
     #   hardware bugs detected: x
     for x in summary:
-        print x
+        print(x)
 
